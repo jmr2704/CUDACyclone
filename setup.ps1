@@ -221,11 +221,12 @@ function Get-GpuArchFlags {
 # ── Build com make ────────────────────────────
 function Build-WithMake {
     Write-Info "Buildando com make..."
-    & make clean 2>$null
-    # Passa GPU_ARCH pra evitar que o make chame nvidia-smi no cmd.exe
+    # Detecta GPU_ARCH antes de qualquer chamada ao make
+    # pra evitar que o Makefile tente rodar nvidia-smi via cmd.exe
     $gpuArch = Get-GpuArch
     $env:GPU_ARCH = $gpuArch
     Write-Info "GPU_ARCH=$gpuArch (passado ao make)"
+    & make clean 2>$null
     & make -j $env:NUMBER_OF_PROCESSORS
     if ($LASTEXITCODE -eq 0) {
         Write-Host ""
