@@ -1,3 +1,58 @@
+# 🐊 Sessão CUDACyclone — 2026-06-27
+
+## Contexto
+- **Projeto:** CUDACyclone — GPU Satoshi Puzzle Solver (CUDA)
+- **Repo:** `github.com/jmr2704/CUDACyclone`
+- **Branch:** `main`
+- **GPU alvo:** RTX 3060 (Compute 8.6)
+
+---
+
+## ✅ Tasks concluídas
+
+### 1. setup.ps1 testado no Windows real
+- Detecção de `GPU_ARCH` confirmada como **dinâmica** (`nvidia-smi` → `8.6` → `86`)
+- Build completo com CUDA 13.3 + VS2022 + make (Chocolatey)
+- Binário `CUDACyclone.exe` gerado e funcional
+
+### 2. Makefile bugfix — `del` no Windows
+- `RM := del /Q /F` → `RM := cmd /c del /Q /F`
+- `del` é comando interno do `cmd.exe`, não executável standalone → quebrava no `make clean`
+
+### 3. proof.py — compatibilidade Windows
+- `select.select()` substituído por `threading.Thread` (select só funciona com sockets no Windows)
+- `import select` removido
+- Script rodou 296/296 testes sem falhas ✅
+
+### 4. README atualizado
+- Typos corrigidos: `sage:` → `usage:`
+- RTX 3060 adicionado à tabela de benchmarks (550 Mkeys/s)
+
+### 5. Git push
+- Autenticação resolvida com token do `jmr2704`
+- Commit `b849825` enviado pro remote
+
+---
+
+## 📦 Commits
+
+| Hash | Descrição |
+|---|---|
+| `b849825` | Fix Windows compat: cmd /c del, select→threading, README typos |
+| `7d9712f` | Atualiza endereco BTC |
+| `80988ab` | README 100% ingles |
+| `152fefc` | Setup scripts, Makefile cross-platform, melhorias visuais |
+
+---
+
+## 🧭 Próximos passos
+
+1. **Tuning de performance** — testar `--grid` e `--slices` ideais pra RTX 3060
+2. **Teste de range maior** com `proof.py` (ex: `200000000:3FFFFFFFF`)
+3. **Documentar setup Windows** no README com prints do resultado
+
+---
+
 # 🐊 Sessão CUDACyclone — 2026-06-26
 
 ## Contexto
