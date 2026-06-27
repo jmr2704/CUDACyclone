@@ -44,5 +44,5 @@ $(TARGET): $(OBJ)
 	$(CC) $(NVCC_FLAGS) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	$(RM) $(TARGET) $(OBJ)
+	-$(RM) $(TARGET) $(OBJ)
 
