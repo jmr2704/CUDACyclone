@@ -30,7 +30,7 @@ endif
 SM_ARCHS   := 75 86 89 $(GPU_ARCH)
 GENCODE    := $(foreach arch,$(SM_ARCHS),-gencode arch=compute_$(arch),code=sm_$(arch))
 
-NVCC_FLAGS := -O3 -rdc=true -use_fast_math --ptxas-options=-O3 $(GENCODE)
+NVCC_FLAGS := -O3 -rdc=true -use_fast_math --ptxas-options=-O3 -allow-unsupported-compiler $(GENCODE)
 CXXFLAGS   := -std=c++17
 
 LDFLAGS    := -lcudadevrt -cudart=static

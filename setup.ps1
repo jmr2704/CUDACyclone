@@ -153,10 +153,27 @@ function Find-Make {
         $resp = Read-Host
         if ($resp -eq 's' -or $resp -eq 'S') {
             Start-Process -FilePath "winget" -ArgumentList "install", "GnuWin32.Make", "--accept-package-agreements", "--accept-source-agreements" -Wait -PassThru -NoNewWindow | Out-Null
+            # PATH pode nao ter atualizado — varre locais comuns
+            $gnuPaths = @(
+                "${env:ProgramFiles}\GnuWin32\bin\make.exe",
+                "${env:ProgramFiles(x86)}\GnuWin32\bin\make.exe",
+                "${env:ProgramFiles}\make\bin\make.exe",
+                "${env:ProgramFiles(x86)}\make\bin\make.exe"
+            )
+            foreach ($gp in $gnuPaths) {
+                if (Test-Path $gp) {
+                    Write-Ok "make encontrado em: $gp"
+                    $env:Path = "$(Split-Path $gp);$env:Path"
+                    return $true
+                }
+            }
             if (Get-Command make.exe -ErrorAction SilentlyContinue) {
                 Write-Ok "make instalado"
                 return $true
             }
+            Write-Warn "make instalado, mas nao encontrado no PATH."
+            Write-Warn "Adicione manualmente ao PATH ou use: choco install make"
+            return $false
         }
     }
 
@@ -234,7 +251,8 @@ function Build-WithNvcc {
     # Prepara flags base
     $archFlags = Get-GpuArchFlags
     $commonFlags = @(
-        '-O3', '-rdc=true', '-use_fast_math', '--ptxas-options=-O3'
+        '-O3', '-rdc=true', '-use_fast_math', '--ptxas-options=-O3',
+        '-allow-unsupported-compiler'
     ) + $archFlags + @(
         '-std=c++17'
     )
