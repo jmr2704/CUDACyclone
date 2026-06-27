@@ -1,0 +1,12 @@
+# Build artifacts
+*.o
+*.obj
+*.exe
+CUDACyclone
+CUDACyclone.exe
+
+# Test results
+cyclone_tests_results.txt
+
+# Windows
+Thumbs.db

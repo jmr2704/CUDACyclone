@@ -38,7 +38,7 @@ __device__ __forceinline__ bool warp_found_ready(const int* __restrict__ d_found
 }
 
 #ifndef MAX_BATCH_SIZE
-#define MAX_BATCH_SIZE 1024
+#define MAX_BATCH_SIZE 1536
 #endif
 #ifndef WARP_SIZE
 #define WARP_SIZE 32
@@ -468,47 +468,17 @@ int main(int argc, char** argv) {
         }
     }
 
-    auto is_pow2 = [](uint32_t v)->bool { return v && ((v & (v-1)) == 0); };
-    if (!is_pow2(runtime_points_batch_size) || (runtime_points_batch_size & 1u)) {
-        std::cerr << "Error: batch size must be even and a power of two.\n";
+    if (runtime_points_batch_size < 2 || (runtime_points_batch_size & 1u)) {
+        std::cerr << "Error: batch size must be at least 2 and even.\n";
         return EXIT_FAILURE;
     }
     if (runtime_points_batch_size > MAX_BATCH_SIZE) {
-        std::cerr << "Error: batch size must be <= " << MAX_BATCH_SIZE << " (kernel limit).\n";
+        std::cerr << "Error: batch size must be <= " << MAX_BATCH_SIZE << " (constant memory limit).\n";
         return EXIT_FAILURE;
     }
 
     uint64_t range_len[4]; sub256(range_end, range_start, range_len); add256_u64(range_len, 1ull, range_len);
-
-    auto is_zero_256 = [](const uint64_t a[4])->bool { return (a[0]|a[1]|a[2]|a[3]) == 0ull; };
-    auto is_power_of_two_256 = [&](const uint64_t a[4])->bool {
-        if (is_zero_256(a)) return false;
-        uint64_t am1[4]; uint64_t borrow = 1ull;
-        for (int i=0;i<4;++i) {
-            uint64_t v = a[i] - borrow; borrow = (a[i] < borrow) ? 1ull : 0ull; am1[i] = v;
-            if (!borrow && i+1<4) { for (int k=i+1;k<4;++k) am1[k] = a[k]; break; }
-        }
-        uint64_t and0=a[0]&am1[0], and1=a[1]&am1[1], and2=a[2]&am1[2], and3=a[3]&am1[3];
-        return (and0|and1|and2|and3)==0ull;
-    };
-    if (!is_power_of_two_256(range_len)) {
-        std::cerr << "Error: range length (end - start + 1) must be a power of two.\n"; return EXIT_FAILURE;
-    }
-    uint64_t len_minus1[4];
-    {   uint64_t borrow=1ull;
-        for (int i=0;i<4;++i) {
-            uint64_t v=range_len[i]-borrow; borrow=(range_len[i]<borrow)?1ull:0ull; len_minus1[i]=v;
-            if (!borrow && i+1<4) { for (int k=i+1;k<4;++k) len_minus1[k]=range_len[k]; break; }
-        }
-    }
-    {   uint64_t and0 = range_start[0] & len_minus1[0];
-        uint64_t and1 = range_start[1] & len_minus1[1];
-        uint64_t and2 = range_start[2] & len_minus1[2];
-        uint64_t and3 = range_start[3] & len_minus1[3];
-        if ((and0|and1|and2|and3) != 0ull) {
-            std::cerr << "Error: start must be aligned to the range length.\n"; return EXIT_FAILURE;
-        }
-    }
+    uint64_t q_div_batch[4];
 
     int device=0; cudaDeviceProp prop{};
     if (cudaGetDevice(&device)!=cudaSuccess || cudaGetDeviceProperties(&prop, device)!=cudaSuccess) {
@@ -527,48 +497,42 @@ int main(int argc, char** argv) {
     uint64_t usableMem = (totalGlobalMem > reserveBytes) ? (totalGlobalMem - reserveBytes) : (totalGlobalMem / 2);
     uint64_t maxThreadsByMem = usableMem / bytesPerThread;
 
-    uint64_t q_div_batch[4], r_div_batch = 0ull;
-    divmod_256_by_u64(range_len, (uint64_t)runtime_points_batch_size, q_div_batch, r_div_batch);
-    if (r_div_batch != 0ull) {
-        std::cerr << "Error: range length must be divisible by batch size (" << runtime_points_batch_size << ").\n";
-        return EXIT_FAILURE;
+    // Round range_len up to nearest multiple of batch_size
+    uint64_t r_batch = 0ull;
+    divmod_256_by_u64(range_len, (uint64_t)runtime_points_batch_size, q_div_batch, r_batch);
+    if (r_batch != 0ull) {
+        uint64_t adjust = (uint64_t)runtime_points_batch_size - r_batch;
+        add256_u64(range_len, adjust, range_len);
+        divmod_256_by_u64(range_len, (uint64_t)runtime_points_batch_size, q_div_batch, r_batch);
     }
     bool q_fits_u64 = (q_div_batch[3]|q_div_batch[2]|q_div_batch[1]) == 0ull;
-    uint64_t total_batches_u64 = q_fits_u64 ? q_div_batch[0] : 0ull;
-    if (!q_fits_u64) { std::cerr << "Error: total batches too large for u64.\n"; return EXIT_FAILURE; }
+    if (!q_fits_u64) { std::cerr << "Error: range too large.\n"; return EXIT_FAILURE; }
+    uint64_t total_batches_u64 = q_div_batch[0];
 
     uint64_t userUpper = (uint64_t)prop.multiProcessorCount * (uint64_t)runtime_batches_per_sm * (uint64_t)threadsPerBlock;
     if (userUpper == 0ull) userUpper = UINT64_MAX;
 
-    auto pick_threads_total = [&](uint64_t upper)->uint64_t {
-        if (upper < (uint64_t)threadsPerBlock) return 0ull;
-        uint64_t t = upper - (upper % (uint64_t)threadsPerBlock);
-        uint64_t q = total_batches_u64;
-        while (t >= (uint64_t)threadsPerBlock) {
-            if ((q % t) == 0ull) return t;
-            t -= (uint64_t)threadsPerBlock;
-        }
-        return 0ull;
-    };
-
-    uint64_t upper = maxThreadsByMem;
-    if (total_batches_u64 < upper) upper = total_batches_u64;
-    if (userUpper         < upper) upper = userUpper;
-
-    uint64_t threadsTotal = pick_threads_total(upper);
-    if (threadsTotal == 0ull) {
-        std::cerr << "Error: failed to pick threadsTotal satisfying divisibility.\n";
-        return EXIT_FAILURE;
+    // Pick threadsTotal: pick the max possible, then adjust total_batches to match
+    uint64_t desired_upper = maxThreadsByMem;
+    if (userUpper < desired_upper) desired_upper = userUpper;
+    uint64_t threadsTotal = (desired_upper / (uint64_t)threadsPerBlock) * (uint64_t)threadsPerBlock;
+    if (threadsTotal < (uint64_t)threadsPerBlock) threadsTotal = (uint64_t)threadsPerBlock;
+    if (total_batches_u64 < threadsTotal) {
+        threadsTotal = (total_batches_u64 / (uint64_t)threadsPerBlock) * (uint64_t)threadsPerBlock;
+        if (threadsTotal < (uint64_t)threadsPerBlock) threadsTotal = (uint64_t)threadsPerBlock;
     }
+    // Adjust total_batches to be divisible by threadsTotal
+    if ((total_batches_u64 % threadsTotal) != 0ull) {
+        uint64_t rem = total_batches_u64 % threadsTotal;
+        total_batches_u64 += threadsTotal - rem;
+        uint64_t add_keys = (threadsTotal - rem) * (uint64_t)runtime_points_batch_size;
+        add256_u64(range_len, add_keys, range_len);
+    }
+
     int blocks = (int)(threadsTotal / (uint64_t)threadsPerBlock);
 
     uint64_t per_thread_cnt[4]; uint64_t r_u64 = 0ull;
     divmod_256_by_u64(range_len, threadsTotal, per_thread_cnt, r_u64);
-    if (r_u64 != 0ull) { std::cerr << "Internal error: range_len not divisible by threadsTotal.\n"; return EXIT_FAILURE; }
-    {   uint64_t qq[4], rr=0ull;
-        divmod_256_by_u64(per_thread_cnt, (uint64_t)runtime_points_batch_size, qq, rr);
-        if (rr != 0ull) { std::cerr << "Internal error: per-thread count is not a multiple of batch size.\n"; return EXIT_FAILURE; }
-    }
 
     uint64_t* h_counts256     = nullptr;
     uint64_t* h_start_scalars = nullptr;
@@ -760,10 +724,19 @@ int main(int argc, char** argv) {
                 long double total_keys_ld = ld_from_u256(range_len);
                 long double prog = total_keys_ld > 0.0L ? ((long double)h_hashes / total_keys_ld) * 100.0L : 0.0L;
                 if (prog > 100.0L) prog = 100.0L;
-                std::cout << "\rTime: " << std::fixed << std::setprecision(1) << elapsed
-                          << " s | Speed: " << std::fixed << std::setprecision(1) << mkeys
-                          << " Mkeys/s | Count: " << h_hashes
-                          << " | Progress: " << std::fixed << std::setprecision(2) << (double)prog << " %";
+                double speed_val = mkeys;
+                const char* speed_unit = "Mkeys/s";
+                if (speed_val >= 1000000.0) {
+                    speed_val /= 1000000.0;
+                    speed_unit = "Tkeys/s";
+                } else if (speed_val >= 1000.0) {
+                    speed_val /= 1000.0;
+                    speed_unit = "Gkeys/s";
+                }
+                std::cout << "\rTime: " << std::fixed << std::setprecision(1) << std::setw(6) << elapsed
+                          << " s | Speed: " << std::fixed << std::setprecision(2) << std::setw(7) << speed_val
+                          << " " << speed_unit << " | Count: " << std::setw(14) << h_hashes
+                          << " | Progress: " << std::fixed << std::setprecision(2) << std::setw(6) << (double)prog << " %   ";
                 std::cout.flush();
                 lastHashes = h_hashes; tLast = now;
             }

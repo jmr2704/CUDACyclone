@@ -184,22 +184,35 @@ Time: 61.2 s | Speed: 1234.3 Mkeys/s | Count: 72707573152 | Progress: 52.90 %
 Private Key   : 00000000000000000000000000000000000000000000000000000022382FACD0
 Public Key    : 03C060E1E3771CBECCB38E119C2414702F3F5181A89652538851D2E3886BDD70C6
 ```
-## 🛠️ Getting Started
-To get started with CUDACyclone, clone the repository and type **make**  
-For totaly clean system (big thanks for **dev_nullish**):
+## 🛠️ Setup & Build
+
+### Linux
 ```bash
-apt update;
-apt-get install -y joe;
-apt-get install -y zip;
-apt-get install -y screen;
-apt-get install -y curl libcurl4;
-apt-get install build-essential;
-apt-get install -y gcc;
-apt-get install -y make;
-apt install cuda-toolkit;
-git clone https://github.com/Dookoo2/CUDACyclone.git
+# Clone e build automático (detecta CUDA, instala dependências, compila)
+git clone https://github.com/jmr2704/CUDACyclone.git
+cd CUDACyclone
+bash setup.sh
+```
+
+Ou manualmente (se já tiver CUDA e make instalados):
+```bash
 make
 ```
+
+### Windows
+```powershell
+# Clone e build automático (detecta CUDA, Visual Studio, make, compila)
+git clone https://github.com/jmr2704/CUDACyclone.git
+cd CUDACyclone
+.\setup.ps1
+```
+
+### Como funciona
+- O **Makefile** detecta automaticamente a compute capability da sua GPU e gera código otimizado para as arquiteturas 75, 86, 89 + a sua.
+- O **setup.sh** (Linux) instala CUDA Toolkit, build-essential e compila.
+- O **setup.ps1** (Windows) detecta CUDA Toolkit, Visual Studio, make e compila.
+- Ambos os scripts detectam a versão mais recente do CUDA disponível no sistema.
+- Rodando `make` direto (sem script) também funciona — usa `86` como fallback se não detectar a GPU.
 ## 🚧**Version**
 **V1.3**: Full CUDA Kernel rewrite again for preventing key skipping.    
 **V1.2**: Full CUDA Kernel rewrite.  
@@ -207,6 +220,14 @@ make
 **V1.0**: Release.
 
 
+
+---
+## 📜 Créditos
+
+Este repositório é um fork com modificações do [CUDACyclone original](https://github.com/Dookoo2/CUDACyclone) por **Dookoo2**.  
+Agradecimentos ao trabalho original que serviu como base para este projeto.
+
+---
 
 ## ✌️**TIPS**
 BTC: bc1qtq4y9l9ajeyxq05ynq09z8p52xdmk4hqky9c8n
