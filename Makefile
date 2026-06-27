@@ -2,7 +2,7 @@
 ifeq ($(OS),Windows_NT)
   TARGET_EXT := .exe
   OBJ_EXT    := .obj
-  RM         := del /Q /F
+  RM         := cmd /c del /Q /F
 else
   TARGET_EXT :=
   OBJ_EXT    := .o
