@@ -188,31 +188,31 @@ Public Key    : 03C060E1E3771CBECCB38E119C2414702F3F5181A89652538851D2E3886BDD70
 
 ### Linux
 ```bash
-# Clone e build automático (detecta CUDA, instala dependências, compila)
+# Automatic setup — detects CUDA, installs dependencies, builds
 git clone https://github.com/jmr2704/CUDACyclone.git
 cd CUDACyclone
 bash setup.sh
 ```
 
-Ou manualmente (se já tiver CUDA e make instalados):
+Or manually (if CUDA and build tools are already installed):
 ```bash
 make
 ```
 
 ### Windows
 ```powershell
-# Clone e build automático (detecta CUDA, Visual Studio, make, compila)
+# Automatic setup — detects CUDA Toolkit, Visual Studio, make, builds
 git clone https://github.com/jmr2704/CUDACyclone.git
 cd CUDACyclone
 .\setup.ps1
 ```
 
-### Como funciona
-- O **Makefile** detecta automaticamente a compute capability da sua GPU e gera código otimizado para as arquiteturas 75, 86, 89 + a sua.
-- O **setup.sh** (Linux) instala CUDA Toolkit, build-essential e compila.
-- O **setup.ps1** (Windows) detecta CUDA Toolkit, Visual Studio, make e compila.
-- Ambos os scripts detectam a versão mais recente do CUDA disponível no sistema.
-- Rodando `make` direto (sem script) também funciona — usa `86` como fallback se não detectar a GPU.
+### How it works
+- The **Makefile** automatically detects your GPU compute capability and generates optimized code for architectures 75, 86, 89 + yours.
+- **setup.sh** (Linux) installs CUDA Toolkit, build-essential and compiles.
+- **setup.ps1** (Windows) detects CUDA Toolkit, Visual Studio, make and compiles.
+- Both scripts detect the latest CUDA version available on your system.
+- Running `make` directly also works — falls back to `86` if no GPU is detected.
 ## 🚧**Version**
 **V1.3**: Full CUDA Kernel rewrite again for preventing key skipping.    
 **V1.2**: Full CUDA Kernel rewrite.  
@@ -222,10 +222,10 @@ cd CUDACyclone
 
 
 ---
-## 📜 Créditos
+## 📜 Credits
 
-Este repositório é um fork com modificações do [CUDACyclone original](https://github.com/Dookoo2/CUDACyclone) por **Dookoo2**.  
-Agradecimentos ao trabalho original que serviu como base para este projeto.
+This repository is a fork with modifications of the original [CUDACyclone](https://github.com/Dookoo2/CUDACyclone) by **Dookoo2**.  
+Thanks to the original work that served as the foundation for this project.
 
 ---
 
