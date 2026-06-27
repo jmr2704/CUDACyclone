@@ -226,7 +226,7 @@ function Build-WithMake {
     $gpuArch = Get-GpuArch
     $env:GPU_ARCH = $gpuArch
     Write-Info "GPU_ARCH=$gpuArch (passado ao make)"
-    & make clean 2>$null
+    & make clean 2>&1 | Out-Null
     & make -j $env:NUMBER_OF_PROCESSORS
     if ($LASTEXITCODE -eq 0) {
         Write-Host ""
