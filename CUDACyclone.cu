@@ -647,13 +647,63 @@ static void run_on_gpu(
     // Fills chunk_start with a random position in [range_start, range_end - chunk_span]
     auto pick_random_start = [&](uint64_t chunk_start[4]) {
         // Effective range for chunk selection: range_len - chunk_span
-        // Use __uint128_t; safe for any range up to 2^128
-        __uint128_t rl = ((__uint128_t)full_range_len[1] << 64) | full_range_len[0];
-        if (rl > (__uint128_t)chunk_span) rl -= (__uint128_t)chunk_span;
-        else rl = 1;
-        __uint128_t r = ((__uint128_t)rng_state() << 64) | rng_state();
-        __uint128_t off = r % rl;
-        uint64_t offset[4] = {(uint64_t)off, (uint64_t)(off >> 64), 0, 0};
+        // Uses 128-bit arithmetic; safe for any range up to 2^128
+        uint64_t rl_lo = full_range_len[0];
+        uint64_t rl_hi = full_range_len[1];
+        // Subtract chunk_span from 128-bit rl
+        if (rl_lo < chunk_span) {
+            if (rl_hi > 0) { --rl_hi; }  // borrow
+            // rl_lo wraps: rl_lo = rl_lo + (2^64 - chunk_span) = rl_lo - chunk_span (mod 2^64)
+        }
+        rl_lo -= chunk_span;
+        if (rl_hi == 0 && rl_lo == 0) { rl_lo = 1; }  // guard against empty range
+
+        // Generate 128-bit random r
+        uint64_t r_lo = rng_state();
+        uint64_t r_hi = rng_state();
+
+        // Compute off = r % rl  (128-bit modulo)
+        uint64_t off_lo, off_hi;
+        if (rl_hi == 0) {
+            // Divisor fits in 64 bits
+            uint64_t rem = 0;
+#ifdef _MSC_VER
+            off_lo = _udiv128(r_hi, r_lo, rl_lo, &rem);
+            off_hi = 0;
+#else
+            __uint128_t rr = ((__uint128_t)r_hi << 64) | r_lo;
+            off_lo = (uint64_t)(rr % rl_lo);
+            off_hi = 0;
+#endif
+        } else {
+            // Divisor is 128-bit: binary long division (shift-subtract)
+            uint64_t rm_lo = 0, rm_hi = 0;
+            off_lo = 0; off_hi = 0;
+            for (int _i = 0; _i < 128; ++_i) {
+                // shift remainder left, bring in top bit of r_hi
+                uint64_t top = (r_hi >> 63);
+                rm_lo = (rm_lo << 1) | (rm_hi >> 63);
+                rm_hi = (rm_hi << 1) | top;
+                // shift quotient left
+                off_lo = (off_lo << 1) | (off_hi >> 63);
+                off_hi = (off_hi << 1);
+                // bring in next bit of r
+                r_hi = (r_hi << 1) | (r_lo >> 63);
+                r_lo = (r_lo << 1);
+                // if remainder >= divisor, subtract
+                if (rm_hi > rl_hi || (rm_hi == rl_hi && rm_lo >= rl_lo)) {
+                    // subtract rl from rm (128-bit borrow)
+                    uint64_t diff = rm_lo - rl_lo;
+                    uint64_t brw = (diff > rm_lo) ? 1ULL : 0ULL;
+                    rm_lo = diff;
+                    rm_hi = rm_hi - rl_hi - brw;
+                    // set quotient bit
+                    off_lo |= 1;
+                }
+            }
+        }
+
+        uint64_t offset[4] = {off_lo, off_hi, 0, 0};
         add256(range_start, offset, chunk_start);
     };
 
@@ -870,6 +920,10 @@ int main(int argc, char** argv) {
             }
             slices_per_launch = (uint32_t)v;
         }
+        else if (arg == "--gpus" && i + 1 < argc) {
+            // parsed after GPU detection — skip the value here
+            ++i;
+        }
         else if (arg == "--random") {
             random_mode = true;
         }
@@ -877,7 +931,7 @@ int main(int argc, char** argv) {
 
     if (range_hex.empty() || (target_hash_hex.empty() && address_b58.empty())) {
         std::cerr << "Usage: " << argv[0]
-                  << " --range <start_hex>:<end_hex> (--address <base58> | --target-hash160 <hash160_hex>) [--grid A,B] [--slices N] [--random]\n";
+                  << " --range <start_hex>:<end_hex> (--address <base58> | --target-hash160 <hash160_hex>) [--grid A,B] [--slices N] [--gpus all|0|0,1] [--random]\n";
         return EXIT_FAILURE;
     }
     if (!target_hash_hex.empty() && !address_b58.empty()) {
@@ -916,11 +970,46 @@ int main(int argc, char** argv) {
     }
 
     // Detect GPUs
-    int num_gpus = 0;
-    if (cudaGetDeviceCount(&num_gpus) != cudaSuccess || num_gpus == 0) {
+    int num_gpus_avail = 0;
+    if (cudaGetDeviceCount(&num_gpus_avail) != cudaSuccess || num_gpus_avail == 0) {
         std::cerr << "No CUDA-capable GPUs found.\n";
         return EXIT_FAILURE;
     }
+
+    // Parse --gpus flag (user-selected GPU indices)
+    std::vector<int> selected_gpus;
+    {
+        // Default: use --gpus value if provided, else "all"
+        std::string gpus_arg = "all";
+        // Scan for --gpus in argv (already parsed earlier, but we check here for simplicity)
+        for (int _i = 1; _i < argc; ++_i) {
+            if (std::string(argv[_i]) == "--gpus" && _i + 1 < argc) {
+                gpus_arg = argv[++_i];
+                break;
+            }
+        }
+        if (gpus_arg == "all") {
+            for (int g = 0; g < num_gpus_avail; ++g) selected_gpus.push_back(g);
+        } else {
+            std::stringstream ss(gpus_arg);
+            std::string tok;
+            while (std::getline(ss, tok, ',')) {
+                char* endp = nullptr;
+                unsigned long idx = std::strtoul(tok.c_str(), &endp, 10);
+                if (*endp != '\0' || idx >= (unsigned long)num_gpus_avail) {
+                    std::cerr << "Error: invalid GPU index '" << tok
+                              << "'. Available GPUs: 0.." << (num_gpus_avail - 1) << "\n";
+                    return EXIT_FAILURE;
+                }
+                selected_gpus.push_back((int)idx);
+            }
+            if (selected_gpus.empty()) {
+                std::cerr << "Error: --gpus must be 'all' or a comma-separated list of GPU indices.\n";
+                return EXIT_FAILURE;
+            }
+        }
+    }
+    int num_gpus = (int)selected_gpus.size();
 
     // Full range length (for progress display)
     uint64_t range_len[4];
@@ -931,9 +1020,9 @@ int main(int argc, char** argv) {
     // In sequential mode split evenly across GPUs.
     std::vector<std::array<uint64_t,4>> gpu_starts(num_gpus), gpu_ends(num_gpus);
     if (random_mode) {
-        for (int g = 0; g < num_gpus; ++g) {
-            gpu_starts[g] = { range_start[0], range_start[1], range_start[2], range_start[3] };
-            gpu_ends[g]   = { range_end[0],   range_end[1],   range_end[2],   range_end[3]   };
+        for (int gi = 0; gi < num_gpus; ++gi) {
+            gpu_starts[gi] = { range_start[0], range_start[1], range_start[2], range_start[3] };
+            gpu_ends[gi]   = { range_end[0],   range_end[1],   range_end[2],   range_end[3]   };
         }
     } else {
     uint64_t per_gpu_len[4]; uint64_t r_gpu = 0ull;
@@ -941,15 +1030,15 @@ int main(int argc, char** argv) {
 
     {
         uint64_t cur[4] = { range_start[0], range_start[1], range_start[2], range_start[3] };
-        for (int g = 0; g < num_gpus; ++g) {
-            gpu_starts[g] = { cur[0], cur[1], cur[2], cur[3] };
-            if (g == num_gpus - 1) {
-                gpu_ends[g] = { range_end[0], range_end[1], range_end[2], range_end[3] };
+        for (int gi = 0; gi < num_gpus; ++gi) {
+            gpu_starts[gi] = { cur[0], cur[1], cur[2], cur[3] };
+            if (gi == num_gpus - 1) {
+                gpu_ends[gi] = { range_end[0], range_end[1], range_end[2], range_end[3] };
             } else {
                 uint64_t next[4]; add256(cur, per_gpu_len, next);
                 uint64_t one[4] = {1,0,0,0};
                 uint64_t end[4]; sub256(next, one, end);
-                gpu_ends[g] = { end[0], end[1], end[2], end[3] };
+                gpu_ends[gi] = { end[0], end[1], end[2], end[3] };
                 cur[0]=next[0]; cur[1]=next[1]; cur[2]=next[2]; cur[3]=next[3];
             }
         }
@@ -958,9 +1047,10 @@ int main(int argc, char** argv) {
 
     std::cout << "======== PrePhase: GPU Information (" << num_gpus
               << " GPU" << (num_gpus > 1 ? "s" : "") << ") ===\n";
-    for (int g = 0; g < num_gpus; ++g) {
-        cudaDeviceProp p{}; cudaGetDeviceProperties(&p, g);
-        std::cout << "  GPU " << g << " : " << p.name
+    for (int gi = 0; gi < num_gpus; ++gi) {
+        int dev = selected_gpus[gi];
+        cudaDeviceProp p{}; cudaGetDeviceProperties(&p, dev);
+        std::cout << "  GPU " << dev << " : " << p.name
                   << "  |  " << p.multiProcessorCount << " SMs"
                   << "  |  " << human_bytes((double)p.totalGlobalMem) << "\n";
     }
@@ -972,10 +1062,11 @@ int main(int argc, char** argv) {
 
     std::vector<std::thread> gpu_threads;
     gpu_threads.reserve(num_gpus);
-    for (int g = 0; g < num_gpus; ++g) {
-        gpu_threads.emplace_back([&, g]() {
-            run_on_gpu(g,
-                       gpu_starts[g].data(), gpu_ends[g].data(),
+    for (int gi = 0; gi < num_gpus; ++gi) {
+        int dev = selected_gpus[gi];
+        gpu_threads.emplace_back([&, gi, dev]() {
+            run_on_gpu(dev,
+                       gpu_starts[gi].data(), gpu_ends[gi].data(),
                        target_hash160,
                        runtime_points_batch_size, runtime_batches_per_sm, slices_per_launch,
                        random_mode,
