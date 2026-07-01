@@ -108,6 +108,38 @@ Users have reported the following speeds:
 
 ---
 
+## ℹ️ Help
+
+```
+CUDACyclone v1.4 — GPU Satoshi Puzzle Solver
+
+Usage: ./CUDACyclone --range <start_hex>:<end_hex> --address <base58>
+       [--grid A,B] [--slices N] [--gpus all|0|0,1] [--random]
+
+Required:
+  --range <start:end>        Search range in hex (e.g. 2000000000:3FFFFFFFFF)
+  --address <base58>         P2PKH address to search for
+  --target-hash160 <hex>     Alternative to --address (raw hash160)
+
+Options:
+  --grid <P,T>               Points per batch, threads per block (e.g. 512,256)
+  --slices <N>               Batches per thread per kernel launch
+  --gpus <all|0|0,1>         Select which GPUs to use (default: all)
+  --random                   Lottery mode: random jumps across the range
+  -h, --help                 Show this help
+
+Examples:
+  ./CUDACyclone --range 200000000:3FFFFFFFF --address 1HBtAp... --grid 128,128
+  ./CUDACyclone --range 200000000:3FFFFFFFF --address 1HBtAp... --gpus 0,1 --random --slices 16
+  ./CUDACyclone --range 200000000:3FFFFFFFF --address 1HBtAp... --gpus 0
+
+Multi-GPU: auto-detects all CUDA GPUs. Use --gpus to select specific ones.
+Random mode: each GPU independently jumps to random positions.
+Proof test: python3 proof.py --range 200000000:3FFFFFFFF --grid 128,128
+```
+
+---
+
 ## 🔷 Example Output
 
 Below is an example run of **Cyclone CUDA**.  
