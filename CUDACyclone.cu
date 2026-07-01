@@ -899,6 +899,35 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
+        if (arg == "--help" || arg == "-h") {
+            std::cout << "CUDACyclone v1.4 — GPU Satoshi Puzzle Solver\n"
+                      << "\n"
+                      << "Usage: " << argv[0]
+                      << " --range <start_hex>:<end_hex> --address <base58>\n"
+                      << "       [--grid A,B] [--slices N] [--gpus all|0|0,1] [--random]\n"
+                      << "\n"
+                      << "Required:\n"
+                      << "  --range <start:end>        Search range in hex (e.g. 2000000000:3FFFFFFFFF)\n"
+                      << "  --address <base58>         P2PKH address to search for\n"
+                      << "  --target-hash160 <hex>     Alternative to --address (raw hash160)\n"
+                      << "\n"
+                      << "Options:\n"
+                      << "  --grid <P,T>               Points per batch, threads per block (e.g. 512,256)\n"
+                      << "  --slices <N>                Batches per thread per kernel launch\n"
+                      << "  --gpus <all|0|0,1>         Select which GPUs to use (default: all)\n"
+                      << "  --random                   Lottery mode: random jumps across the range\n"
+                      << "  -h, --help                 Show this help\n"
+                      << "\n"
+                      << "Examples:\n"
+                      << "  ./CUDACyclone --range 200000000:3FFFFFFFF --address 1HBtAp... --grid 128,128\n"
+                      << "  ./CUDACyclone --range 200000000:3FFFFFFFF --address 1HBtAp... --gpus 0,1 --random --slices 16\n"
+                      << "  ./CUDACyclone --range 200000000:3FFFFFFFF --address 1HBtAp... --gpus 0\n"
+                      << "\n"
+                      << "Multi-GPU: auto-detects all CUDA GPUs. Use --gpus to select specific ones.\n"
+                      << "Random mode: each GPU independently jumps to random positions.\n"
+                      << "Proof test: python3 proof.py --range 200000000:3FFFFFFFF --grid 128,128\n";
+            return EXIT_SUCCESS;
+        }
         if      (arg == "--target-hash160" && i + 1 < argc) target_hash_hex = argv[++i];
         else if (arg == "--address"        && i + 1 < argc) address_b58     = argv[++i];
         else if (arg == "--range"          && i + 1 < argc) range_hex       = argv[++i];
