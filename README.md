@@ -64,7 +64,7 @@ Done. Results in cyclone_tests_results.txt. Successes=848 Failures=0
 ```
 ## 🚀 Key Features
 
-- **Multi-GPU**: Auto-detects all CUDA GPUs — spawns one worker thread per GPU with independent CUDA context.
+- **Multi-GPU**: Auto-detects all CUDA GPUs — spawns one worker thread per GPU with independent CUDA context. Select specific GPUs with `--gpus`.
 - **GPU Acceleration**: Optimized for NVIDIA GPUs with full CUDA support.
 - **Massive Parallelism**: Tens of thousands of threads computing elliptic curve points and **hash160** simultaneously.
 - **Batch EC Operations**: Efficient group addition and modular inversion with warp-level optimizations.
@@ -81,6 +81,7 @@ Done. Results in cyclone_tests_results.txt. Successes=848 Failures=0
 - **`--target-hash160`**: same as address but raw hash160 hex.
 - **`--grid`**: thread config. Format `--grid <points_per_batch>,<threads_per_block>`. Example: `--grid 512,512`.
 - **`--slices`**: batches per thread per kernel launch. Tune for GPU occupancy.
+- **`--gpus`**: select which GPUs to use. `--gpus all` (default), `--gpus 0` (single GPU), `--gpus 0,1` (specific GPUs).
 - **`--random`**: enable lottery/random-jump mode. Each GPU picks a random position before every kernel launch, covering the full range independently. Use with `--slices` to control chunk size.
 
 ---
@@ -102,7 +103,8 @@ Users have reported the following speeds:
 
 ---
 
-> **Multi-GPU**: when 2+ GPUs are detected, the range is split evenly among them in sequential mode, or each GPU covers the full range independently in `--random` mode.
+> **Multi-GPU**: when 2+ GPUs are detected, the range is split evenly among them in sequential mode, or each GPU covers the full range independently in `--random` mode.  
+> Use `--gpus 0` to force single-GPU on a multi-GPU system. Use `--gpus 0,1` to select specific devices.
 
 ---
 
@@ -201,10 +203,13 @@ Public Key    : 03C060E1E3771CBECCB38E119C2414702F3F5181A89652538851D2E3886BDD70
 # Sequential scan with 2 GPUs (range split automatically)
 ./CUDACyclone --range 2000000000:3FFFFFFFFF --address 1HBtApAFA9B2YZw3G2YKSMCtb3dVnjuNe2 --grid 512,256
 
+# Use only GPU 0 (even with multiple GPUs installed)
+./CUDACyclone --range 2000000000:3FFFFFFFFF --address 1HBtApAFA9B2YZw3G2YKSMCtb3dVnjuNe2 --grid 512,256 --gpus 0
+
 # Random/lottery mode — both GPUs jump randomly across the full range
 ./CUDACyclone --range 2000000000:3FFFFFFFFF --address 1HBtApAFA9B2YZw3G2YKSMCtb3dVnjuNe2 --grid 512,256 --random --slices 16
 ```
-> In multi-GPU mode, the pre-phase shows one line per GPU with name, SM count, and memory. Each GPU runs its own worker thread with independent CUDA context.
+> In multi-GPU mode, the pre-phase shows one line per GPU with name, SM count, and memory. Each GPU runs its own worker thread with independent CUDA context. Use `--gpus` to select specific devices.
 
 ## 🛠️ Setup & Build
 
