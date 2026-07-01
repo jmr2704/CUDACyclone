@@ -12,6 +12,8 @@ It was designed with clarity and minimalism in mind — making it easy to **comp
 Despite its simplicity, Cyclone CUDA leverages **massive GPU parallelism** to achieve extreme performance in elliptic curve computations and Hash160 pipelines. 
 
 ⚠️ **Achieved 6.5Gkeys/s on RTX4090. 8.6Gkeys/s on RTX5090.**  
+⚠️ **Multi-GPU support: auto-detects all CUDA GPUs and runs one worker per GPU.**  
+⚠️ **New `--random` mode: lottery search — each GPU jumps randomly across the full range.**
 ⚠️ **For preventing decresasing GPU speed you need to use --slices option and not to start brooteforce with 256 points per batch! THe best tune for 4090 is --grid 128,128 --slices 16**
 
 ---
@@ -62,21 +64,24 @@ Done. Results in cyclone_tests_results.txt. Successes=848 Failures=0
 ```
 ## 🚀 Key Features
 
+- **Multi-GPU**: Auto-detects all CUDA GPUs — spawns one worker thread per GPU with independent CUDA context.
 - **GPU Acceleration**: Optimized for NVIDIA GPUs with full CUDA support.
 - **Massive Parallelism**: Tens of thousands of threads computing elliptic curve points and **hash160** simultaneously.
 - **Batch EC Operations**: Efficient group addition and modular inversion with warp-level optimizations.
 - **Grid/Batch Control**: Fully configurable GPU execution with `--grid` parameter (threads per batch × points per batch).
-- **Cross-Platform**: Works on Linux and Windows (via WSL2 or MinGW cross-compilation).
-- **Cross Architecture**: Automatic compilation for different architectures (75 86 89).
+- **`--random` mode**: Lottery search — each GPU independently jumps to random positions across the full range.
+- **Cross-Platform**: Works on Linux and Windows.
+- **Cross Architecture**: Automatic compilation for all detected GPU architectures (compiles cubin per device).
 - **Extremely low VRAM usage**: Key feature! For low price rented GPU.
 ---
 
 ## 🚀 Options
-- **--range**: range of search. Must be a power of two!
-- **--address**: P2PKH address.
-- **--target-hash160**: the same as address but hash160.
-- **--grid**: very usefull parameter. Example --grid 512,512 - first 512 - number of points each thread will process in one batch (Points batch size)., second 512 - number of threads in one group (Threads per batch).
-- **--slices**: batch per thread for one kernel launch.
+- **`--range`**: range of search (hex, e.g. `2000000000:3FFFFFFFFF`).
+- **`--address`**: P2PKH address to search for.
+- **`--target-hash160`**: same as address but raw hash160 hex.
+- **`--grid`**: thread config. Format `--grid <points_per_batch>,<threads_per_block>`. Example: `--grid 512,512`.
+- **`--slices`**: batches per thread per kernel launch. Tune for GPU occupancy.
+- **`--random`**: enable lottery/random-jump mode. Each GPU picks a random position before every kernel launch, covering the full range independently. Use with `--slices` to control chunk size.
 
 ---
 
@@ -93,6 +98,11 @@ Users have reported the following speeds:
 | L4-2Q             | 512,256   | 1360 Mkeys/s    | Community report       |
 | RTX3070 mobile    | 256,256   | 1150 Mkeys/s    | Community report       |
 | RTX 3060          | 64,64     | 550 Mkeys/s     | Tested on Windows      |
+| RTX 3060 + GTX 1070 | auto   | ~1400 Mkeys/s   | Multi-GPU (community)  |
+
+---
+
+> **Multi-GPU**: when 2+ GPUs are detected, the range is split evenly among them in sequential mode, or each GPU covers the full range independently in `--random` mode.
 
 ---
 
@@ -185,6 +195,17 @@ Time: 61.2 s | Speed: 1234.3 Mkeys/s | Count: 72707573152 | Progress: 52.90 %
 Private Key   : 00000000000000000000000000000000000000000000000000000022382FACD0
 Public Key    : 03C060E1E3771CBECCB38E119C2414702F3F5181A89652538851D2E3886BDD70C6
 ```
+
+**Multi-GPU + `--random` mode**
+```bash
+# Sequential scan with 2 GPUs (range split automatically)
+./CUDACyclone --range 2000000000:3FFFFFFFFF --address 1HBtApAFA9B2YZw3G2YKSMCtb3dVnjuNe2 --grid 512,256
+
+# Random/lottery mode — both GPUs jump randomly across the full range
+./CUDACyclone --range 2000000000:3FFFFFFFFF --address 1HBtApAFA9B2YZw3G2YKSMCtb3dVnjuNe2 --grid 512,256 --random --slices 16
+```
+> In multi-GPU mode, the pre-phase shows one line per GPU with name, SM count, and memory. Each GPU runs its own worker thread with independent CUDA context.
+
 ## 🛠️ Setup & Build
 
 ### Linux
@@ -209,11 +230,13 @@ cd CUDACyclone
 ```
 
 ### How it works
-- The **Makefile** automatically detects your GPU compute capability and generates optimized code for architectures 75, 86, 89 + yours.
+- The **Makefile** automatically detects compute capabilities of **all installed GPUs** and generates optimized cubins for each architecture.
 - **setup.sh** (Linux) installs CUDA Toolkit, build-essential and compiles.
 - **setup.ps1** (Windows) detects CUDA Toolkit, Visual Studio, make and compiles.
 - Both scripts detect the latest CUDA version available on your system.
 - Running `make` directly also works — falls back to `86` if no GPU is detected.
+- **Multi-GPU**: at runtime, all CUDA GPUs are auto-detected and a worker thread is spawned per GPU. Each thread manages its own CUDA context, streams, and memory. An atomic shared flag coordinates fast cross-GPU stop when a key is found.
+- **`--random` mode**: instead of scanning linearly, each GPU independently picks a random position within the full range before every kernel launch. Use `--slices N` to tune chunk size vs. jump frequency.
 ## 🚧**Version**
 **V1.3**: Full CUDA Kernel rewrite again for preventing key skipping.    
 **V1.2**: Full CUDA Kernel rewrite.  
